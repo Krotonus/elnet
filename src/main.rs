@@ -4,6 +4,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::str;
 use reqwest;
 use std::env;
+use serde::{Deserialize, Serialize};
+use serde_json;
 
 #[derive(Parser, Debug)]
 #[clap(author = "Krotonus", version = "0.0.1", about = "A simple TCP server that connects to an LLM.", long_about = None)]
@@ -15,6 +17,46 @@ struct Args {
     /// Sets the port to listen on
     #[clap(long, default_value = "8080")]
     port: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct LlmResponse {
+    candidates: Vec<Candidate>,
+    usage_metadata: UsageMetadata,
+    model_version: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Candidate {
+    content: Content,
+    finish_reason: String,
+    avg_logprobs: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Content {
+    parts: Vec<Part>,
+    role: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Part {
+    text: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct UsageMetadata {
+    prompt_token_count: i32,
+    candidates_token_count: i32,
+    total_token_count: i32,
+    prompt_tokens_details: Vec<TokenDetails>,
+    candidates_tokens_details: Vec<TokenDetails>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct TokenDetails {
+    modality: String,
+    token_count: i32,
 }
 
 async fn handle_client(mut stream: TcpStream) {
@@ -88,7 +130,21 @@ async fn call_llm_api(prompt: &str) -> Result<String, reqwest::Error> {
         .await?;
 
     let response_body = response.text().await?;
-    Ok(response_body)
+    let llm_response: Result<LlmResponse, serde_json::Error> = serde_json::from_str(&response_body);
+
+    match llm_response {
+        Ok(llm_response) => {
+            if let Some(candidate) = llm_response.candidates.into_iter().next() {
+                Ok(candidate.content.parts.into_iter().next().map(|part| part.text).unwrap_or_default())
+            } else {
+                Ok("No response from LLM".to_string())
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to parse LLM response: {}", e);
+            Ok("Failed to parse LLM response".to_string())
+        }
+    }
 }
 
 #[tokio::main]
