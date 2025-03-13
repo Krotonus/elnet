@@ -2,6 +2,8 @@ use clap::Parser;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::str;
+use reqwest;
+use std::env;
 
 #[derive(Parser, Debug)]
 #[clap(author = "Krotonus", version = "0.0.1", about = "A simple TCP server that connects to an LLM.", long_about = None)]
@@ -47,14 +49,42 @@ async fn handle_client(mut stream: TcpStream) {
                     println!("Client disconnected: {}", stream.peer_addr().unwrap());
                     break;
                 } else {
-                    if stream.write_all(&buffer[..n]).await.is_err() {
-                        break;
+                    // Call the LLM API with the message
+                    let llm_response = call_llm_api(message).await;
+                    match llm_response {
+                        Ok(response) => {
+                            if let Err(e) = stream.write_all(response.as_bytes()).await {
+                                eprintln!("Failed to send LLM response: {}", e);
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("LLM API call failed: {}", e);
+                            break;
+                        }
                     }
                 }
             }
             Err(_) => break,
         }
     }
+}
+
+async fn call_llm_api(prompt: &str) -> Result<String, reqwest::Error> {
+    let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set");
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={}", api_key);
+
+    let client = reqwest::Client::new();
+    let json_body = format!(r#"{{"contents": [{{"parts":[{{"text": "{}"}}]}}]}}"#, prompt);
+
+    let response = client.post(url)
+        .header("Content-Type", "application/json")
+        .body(json_body)
+        .send()
+        .await?;
+
+    let response_body = response.text().await?;
+    Ok(response_body)
 }
 
 #[tokio::main]
