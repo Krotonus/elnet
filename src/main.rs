@@ -21,42 +21,42 @@ struct Args {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct LlmResponse {
-    candidates: Vec<Candidate>,
-    usage_metadata: UsageMetadata,
-    model_version: String,
+    candidates: Option<Vec<Candidate>>,
+    usage_metadata: Option<UsageMetadata>,
+    model_version: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Candidate {
-    content: Content,
-    finish_reason: String,
-    avg_logprobs: f64,
+    content: Option<Content>,
+    finish_reason: Option<String>,
+    avg_logprobs: Option<f64>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Content {
-    parts: Vec<Part>,
-    role: String,
+    parts: Option<Vec<Part>>,
+    role: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Part {
-    text: String,
+    text: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct UsageMetadata {
-    prompt_token_count: i32,
-    candidates_token_count: i32,
-    total_token_count: i32,
-    prompt_tokens_details: Vec<TokenDetails>,
-    candidates_tokens_details: Vec<TokenDetails>,
+    prompt_token_count: Option<i32>,
+    candidates_token_count: Option<i32>,
+    total_token_count: Option<i32>,
+    prompt_tokens_details: Option<Vec<TokenDetails>>,
+    candidates_tokens_details: Option<Vec<TokenDetails>>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct TokenDetails {
-    modality: String,
-    token_count: i32,
+    modality: Option<String>,
+    token_count: Option<i32>,
 }
 
 async fn handle_client(mut stream: TcpStream) {
@@ -134,11 +134,14 @@ async fn call_llm_api(prompt: &str) -> Result<String, reqwest::Error> {
 
     match llm_response {
         Ok(llm_response) => {
-            if let Some(candidate) = llm_response.candidates.into_iter().next() {
-                Ok(candidate.content.parts.into_iter().next().map(|part| part.text).unwrap_or_default())
-            } else {
-                Ok("No response from LLM".to_string())
-            }
+            let response_text = llm_response.candidates
+                .and_then(|candidates| candidates.into_iter().next())
+                .and_then(|candidate| candidate.content)
+                .and_then(|content| content.parts)
+                .and_then(|parts| parts.into_iter().next())
+                .and_then(|part| part.text)
+                .unwrap_or_else(|| "No response from LLM".to_string());
+            Ok(response_text)
         }
         Err(e) => {
             eprintln!("Failed to parse LLM response: {}", e);
