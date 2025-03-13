@@ -1,7 +1,7 @@
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::thread;
 use clap::Parser;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::str;
 
 #[derive(Parser, Debug)]
 #[clap(author = "Krotonus", version = "0.0.1", about = "A simple TCP server that connects to an LLM.", long_about = None)]
@@ -15,14 +15,41 @@ struct Args {
     port: String,
 }
 
-fn handle_client(mut stream: TcpStream) {
-    let mut buffer = [0; 512];
+async fn handle_client(mut stream: TcpStream) {
+    println!("New client connected: {}", stream.peer_addr().unwrap());
+
+    // Send a welcome message to the client
+    let welcome_message = "Welcome to the elnet server!\nType /help to view available commands.\n";
+    if let Err(e) = stream.write_all(welcome_message.as_bytes()).await {
+        eprintln!("Failed to send welcome message: {}", e);
+        return;
+    }
+
+    let mut buffer = [0u8; 512];
     loop {
-        match stream.read(&mut buffer) {
+        match stream.read(&mut buffer).await {
             Ok(0) => break, // Connection closed
             Ok(n) => {
-                if stream.write_all(&buffer[0..n]).is_err() {
+                let message = match str::from_utf8(&buffer[..n]) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("Invalid UTF-8 sequence: {}", e);
+                        continue;
+                    }
+                };
+
+                if message.starts_with("/help") {
+                    let help_message = "Available commands:\n/help - View available commands\n/quit - Disconnect from the server\n"; // Add more commands later
+                    if let Err(e) = stream.write_all(help_message.as_bytes()).await {
+                        eprintln!("Failed to send help message: {}", e);
+                    }
+                } else if message.starts_with("/quit") {
+                    println!("Client disconnected: {}", stream.peer_addr().unwrap());
                     break;
+                } else {
+                    if stream.write_all(&buffer[..n]).await.is_err() {
+                        break;
+                    }
                 }
             }
             Err(_) => break,
@@ -30,24 +57,20 @@ fn handle_client(mut stream: TcpStream) {
     }
 }
 
-fn main() -> std::io::Result<()> {
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
     let address = format!("{}:{}", args.hostname, args.port);
-    let listener = TcpListener::bind(&address)?;
+    let listener = TcpListener::bind(&address).await?;
 
     println!("Server listening on {}", address);
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                thread::spawn(|| handle_client(stream));
-            }
-            Err(e) => {
-                eprintln!("Connection failed: {}", e);
-            }
-        }
+    loop {
+        let (socket, addr) = listener.accept().await?;
+        println!("Accepted connection from {}", addr);
+        tokio::spawn(async move {
+            handle_client(socket).await;
+        });
     }
-
-    Ok(())
 }
