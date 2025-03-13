@@ -21,7 +21,7 @@ async fn handle_client(mut stream: TcpStream) {
     println!("New client connected: {}", stream.peer_addr().unwrap());
 
     // Send a welcome message to the client
-    let welcome_message = "Welcome to the elnet server!\nType /help to view available commands.\n";
+    let welcome_message = "Welcome to the elnet server!\nYou are now chatting with an LLM.\nType /help to view available commands.\n> ";
     if let Err(e) = stream.write_all(welcome_message.as_bytes()).await {
         eprintln!("Failed to send welcome message: {}", e);
         return;
@@ -62,6 +62,10 @@ async fn handle_client(mut stream: TcpStream) {
                             eprintln!("LLM API call failed: {}", e);
                             break;
                         }
+                    }
+                    if let Err(e) = stream.write_all("> ".as_bytes()).await {
+                        eprintln!("Failed to send prompt: {}", e);
+                        break;
                     }
                 }
             }
