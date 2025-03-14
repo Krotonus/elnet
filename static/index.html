@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ElNet Terminal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: #1e1e1e;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        #terminal {
+            flex-grow: 1;
+        }
+    </style>
+</head>
+<body>
+    <div id="terminal"></div>
+    <script>
+        const term = new Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            theme: {
+                background: '#1e1e1e'
+            }
+        });
+        term.open(document.getElementById('terminal'));
+
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+        let input = '';
+
+        term.onData(data => {
+            if (data === '\r') { // Enter key
+                term.write('\r\n');
+                ws.send(input);
+                input = '';
+            } else if (data === '\u007f') { // Backspace
+                if (input.length > 0) {
+                    input = input.slice(0, -1);
+                    term.write('\b \b');
+                }
+            } else {
+                input += data;
+                term.write(data);
+            }
+        });
+
+        ws.onmessage = event => {
+            term.write('\r\n' + event.data + '\r\n> ');
+        };
+
+        ws.onopen = () => {
+            term.write('Connected to ElNet Server\r\n> ');
+        };
+
+        ws.onclose = () => {
+            term.write('\r\nDisconnected from server\r\n');
+        };
+    </script>
+</body>
+</html> 
